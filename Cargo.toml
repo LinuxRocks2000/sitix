@@ -3,7 +3,7 @@ name = "sitix"
 version = "0.0.2"
 edition = "2021"
 description = "A simple build tool for web projects."
-license = "GPLv3"
+license = "GPL-3.0-only"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
