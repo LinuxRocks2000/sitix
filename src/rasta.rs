@@ -119,15 +119,15 @@ use std::io::Read;
 
 
 impl FancyFile {
-    fn new(file : &mut std::fs::File) -> Self {
+    fn new(file : &mut std::fs::File) -> Result<Self, Box<dyn std::error::Error + 'static>> {
         let mut s = String::new();
-        file.read_to_string(&mut s).unwrap();
+        file.read_to_string(&mut s)?;
         let mut v : Vec<char> = s.chars().collect();
         v.reverse();
-        Self {
+        Ok(Self {
             data : v,
             last : '\0'
-        }
+        })
     }
 }
 
@@ -184,8 +184,8 @@ pub enum LexerToken {
 }
 
 
-pub fn lexer(f : &mut std::fs::File) -> Vec<LexerToken> { // TODO: make this not public
-    let mut buffer = FancyFile::new(f);
+pub fn lexer(f : &mut std::fs::File) -> Result<Vec<LexerToken>, Box<dyn std::error::Error + 'static>> { // TODO: make this not public
+    let mut buffer = FancyFile::new(f)?;
     let mut ret = vec![];
     while !buffer.is_empty() {
         let plaintext = buffer.read_until_escape('[');
@@ -212,7 +212,7 @@ pub fn lexer(f : &mut std::fs::File) -> Vec<LexerToken> { // TODO: make this not
             }
         }
     }
-    ret
+    Ok(ret)
 }
 
 
@@ -372,14 +372,14 @@ use core::iter::Peekable;
 use std::cell::RefCell;
 
 impl TreeNode {
-    pub fn parse(path : std::path::PathBuf) -> TreeNode { // this is purely a convenience function. It just calls Congeal.
+    pub fn parse(path : std::path::PathBuf) -> Result<TreeNode, Box<dyn std::error::Error + 'static>> { // this is purely a convenience function. It just calls Congeal.
         let mut file = match std::fs::File::open(path) {
             Ok(f) => f,
             Err(_) => {panic!("PANIIIICCCC")}
         };
-        let tokens = lexer(&mut file);
+        let tokens = lexer(&mut file)?;
         let mut tokens = tokens.iter().peekable();
-        return TreeNode::congeal(&mut tokens);
+        return Ok(TreeNode::congeal(&mut tokens));
     }
 
     pub fn is_plaintext(&self) -> bool {
@@ -397,7 +397,15 @@ impl TreeNode {
     }
 
     pub fn congeal(items : &mut Peekable<Iter<'_, LexerToken>>) -> TreeNode {
-        let me = items.next().unwrap();
+        let me = match items.next() {
+            Some(thing) => thing,
+            None => {
+                return TreeNode {
+                    operation : Operation::Text(String::new()),
+                    children : vec![]
+                }
+            }
+        };
         match me {
             LexerToken::PlainText (t) => {
                 TreeNode::new_from_op(Operation::Text(t.clone()))

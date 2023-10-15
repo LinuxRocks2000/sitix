@@ -38,30 +38,38 @@ fn parse_all_recursive(templates : &Vec<(String, rasta::TreeNode)>, rpath : std:
         else if meta.is_file() {
             println!(" Rendering {}", (&path_propre).display());
             let r = rasta::TreeNode::parse(path_propre.clone());
-            let text = if r.is_plaintext() {
-                r.plaintext()
-            }
-            else {
-                let sacrifice = rasta::Scope::top().wrap();
-                let content = rasta::Scope::chitlin_w(sacrifice.clone(), "content".to_string());
-                r.render(content); // toss the render result, we only want to fill the scope. clean this up later.
-                let template_name = match sacrifice.borrow().get("content.template".to_string()) {
-                    Some(value) => value,
-                    None => "default".to_string()
-                };
-                println!("  Parsing with template {}", template_name);
-                let mut template : Option<usize> = None;
-                for (index, pair) in templates.iter().enumerate() {
-                    if pair.0 == template_name {
-                        template = Some(index);
+            let text = match r {
+                Ok(r) => {
+                    let string = if r.is_plaintext() {
+                        r.plaintext()
                     }
+                    else {
+                        let sacrifice = rasta::Scope::top().wrap();
+                        let content = rasta::Scope::chitlin_w(sacrifice.clone(), "content".to_string());
+                        r.render(content); // toss the render result, we only want to fill the scope. clean this up later.
+                        let template_name = match sacrifice.borrow().get("content.template".to_string()) {
+                            Some(value) => value,
+                            None => "default".to_string()
+                        };
+                        println!("  Parsing with template {}", template_name);
+                        let mut template : Option<usize> = None;
+                        for (index, pair) in templates.iter().enumerate() {
+                            if pair.0 == template_name {
+                                template = Some(index);
+                            }
+                        }
+                        if template.is_none() {
+                            println!("   Invalid template");
+                            continue;
+                        }
+                        let template = template.unwrap();
+                        templates[template].1.render(sacrifice)
+                    };
+                    string.into_bytes()
+                },
+                Err(_) => {
+                    std::fs::read(&path_propre).unwrap()
                 }
-                if template.is_none() {
-                    println!("   Invalid template");
-                    continue;
-                }
-                let template = template.unwrap();
-                templates[template].1.render(sacrifice)
             };
             //sacrifice.borrow().draw_tree(0);
             let mut path = std::path::PathBuf::from("output");
@@ -69,7 +77,8 @@ fn parse_all_recursive(templates : &Vec<(String, rasta::TreeNode)>, rpath : std:
             println!("creating {:?}", path);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             let mut file = std::fs::File::create(path).unwrap();
-            file.write_all(text.as_bytes()).unwrap();
+            
+            file.write_all(&text).unwrap();
         }
         else {
             println!("WARNING: Your filesystem tree looks kinda ill. Consider, perhaps, cleaning it up?");
@@ -124,7 +133,7 @@ fn main() {
         let mut tokens = tokens.iter().peekable();
         let r = rasta::TreeNode::congeal(&mut tokens);
         //println!("{}", r.render(rasta::Scope::top().wrap()));*/
-        let r = rasta::TreeNode::parse(path.as_ref().unwrap().path());
+        let r = rasta::TreeNode::parse(path.as_ref().unwrap().path()).unwrap(); // unwrap is safe here, because if your templates directory has invalid Rasta you have bigger problems.
         templates.push((path.unwrap().path().file_stem().unwrap().to_str().unwrap().to_string(), r));
     }
     println!("Rendering");
