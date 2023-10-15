@@ -220,8 +220,8 @@ pub fn lexer(f : &mut std::fs::File) -> Vec<LexerToken> { // TODO: make this not
 #[derive(Debug, Clone)]
 enum Operation {
     Assignment (String, String), // write a variable
-    Label (String, Option<String>), // read a variable, with optional 
-    Text (String), // this is just plaintext
+    Label (String, Option<String>), // read a variable, with optional default value (if it don't exist)
+    Text (String), // this is just plaintext, to be immediately rendered
 }
 
 
@@ -288,6 +288,61 @@ impl Scope {
 
     pub fn chitlin(parent : Scope, name : String) -> Rc<RefCell<Scope>> {
         Scope::chitlin_w(parent.wrap(), name)
+    }
+
+    fn get_child(&self, name : &str) -> Option<Rc<RefCell<Scope>>> {
+        for child in &self.children {
+            if child.borrow().name == name {
+                return Some(child.clone());
+            }
+        }
+        None
+    }
+
+    fn _get(&self, rid : Vec<&str>, ind : usize) -> Option<String> { // rid will be a vector like ["content", "test", "urmom"].
+        // If ind < rid.len - 1, find the child scope referred to by rid[ind] and call that scope's _get, incrementing ind and passing rid without change. 
+        // If ind == rid.len - 1, intelligently return whatever content is referred to by that child scope.
+        let child_scope = match self.get_child(rid[ind]) {
+            Some(scope) => scope,
+            None => {
+                return None;
+            }
+        };
+        if ind < rid.len() - 1 {
+            child_scope.borrow()._get(rid, ind + 1)
+        }
+        else {
+            Some(child_scope.borrow().content.clone())
+        }
+    }
+
+    fn walk_up(&self, target : &str) -> Option<Rc<RefCell<Scope>>> {
+        let mut cursor = self.parent.clone();
+        while cursor.is_some() {
+            println!("tuba");
+            match cursor.clone().unwrap().borrow().get_child(target) {
+                Some(_) => return cursor,
+                _ => {
+                    cursor = cursor.unwrap().borrow().parent.clone();
+                }
+            }
+        }
+        println!("COULDN'T FIND LE SCOPE.");
+        None
+    }
+
+    pub fn get(&self, name : String) -> Option<String> {
+        let rid = name.split(".").collect::<Vec<&str>>();
+        if self.get_child(rid[0]).is_some() {
+            self._get(rid, 0)
+        }
+        else {
+            println!("WALKING ON THE SUN");
+            match self.walk_up(rid[0]) {
+                Some(scope) => scope.borrow()._get(rid, 0),
+                None => None
+            }
+        }
     }
 }
 
@@ -371,16 +426,32 @@ impl TreeNode {
 
     pub fn render(&self, scope : Rc<RefCell<Scope>>) -> String {
         let mut ret = String::new();
-        println!("{:?}", self.children);
         for child in &self.children {
             match child.operation.clone() {
                 Operation::Assignment (name, _) => {
                     let mut child_scope = Scope::chitlin_w(scope.clone(), name);
-                    child_scope.borrow_mut().content = child.render(child_scope.clone());
+                    child_scope.borrow_mut().content = child.render(child_scope.clone()).trim().to_string();
                     scope.borrow_mut().children.push(child_scope);
                 },
                 Operation::Text (text) => {
-                    ret += &text;
+                    let mut pruned = text.trim();
+                    if pruned == "" {
+                        pruned = " ";
+                    }
+                    ret += pruned;
+                },
+                Operation::Label (variable, default) => {
+                    ret += match scope.borrow().get(variable) {
+                        Some(data) => data,
+                        None => {
+                            match default {
+                                Some(data) => data,
+                                None => {
+                                    panic!("YOUR MOM");
+                                }
+                            }
+                        }
+                    }.trim()
                 },
                 _ => {
                     ret += &child.render(scope.clone());

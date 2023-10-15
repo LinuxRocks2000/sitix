@@ -58,8 +58,9 @@ fn main() {
     println!("Output clean successful.");
     println!("Creating template list");
     //let mut templates : Vec <rasta::RastaTemplate> = Vec::new();
+    let mut templates : Vec<(String, rasta::TreeNode)> = vec![];
     for path in std::fs::read_dir(templates_dir).unwrap() {
-        let mut file = match std::fs::File::open(path.unwrap().path()) {
+        let mut file = match std::fs::File::open(path.as_ref().unwrap().path()) {
             Ok(f) => f,
             Err(_) => {continue;}
         };
@@ -68,5 +69,7 @@ fn main() {
         let mut tokens = tokens.iter().peekable();
         let r = rasta::TreeNode::congeal(&mut tokens);
         println!("{}", r.render(rasta::Scope::top().wrap()));
+        templates.push((path.unwrap().path().file_stem().unwrap().to_str().unwrap().to_string(), r));
     }
+    //parse_all_recursive(templates);
 }
