@@ -12,6 +12,7 @@
 */
 
 use clap::Parser;
+use std::io::Write;
 
 pub mod rasta;
 
@@ -20,6 +21,60 @@ pub mod rasta;
 struct SitixArgs {
     directory : Option<std::path::PathBuf>,
     output_directory : Option<std::path::PathBuf>
+}
+
+
+fn parse_all_recursive(templates : &Vec<(String, rasta::TreeNode)>, rpath : std::path::PathBuf) {
+    for path in std::fs::read_dir(rpath).unwrap() {
+        let path_propre = path.as_ref().unwrap().path();
+        let dirname = path_propre.file_name().unwrap();
+        if dirname == "_templates" || dirname == "output" {
+            continue;
+        }
+        let meta = std::fs::metadata(&path_propre).unwrap();
+        if meta.is_dir() {
+            parse_all_recursive(templates, path_propre);
+        }
+        else if meta.is_file() {
+            println!(" Rendering {}", (&path_propre).display());
+            let r = rasta::TreeNode::parse(path_propre.clone());
+            let text = if r.is_plaintext() {
+                r.plaintext()
+            }
+            else {
+                let sacrifice = rasta::Scope::top().wrap();
+                let content = rasta::Scope::chitlin_w(sacrifice.clone(), "content".to_string());
+                r.render(content); // toss the render result, we only want to fill the scope. clean this up later.
+                let template_name = match sacrifice.borrow().get("content.template".to_string()) {
+                    Some(value) => value,
+                    None => "default".to_string()
+                };
+                println!("  Parsing with template {}", template_name);
+                let mut template : Option<usize> = None;
+                for (index, pair) in templates.iter().enumerate() {
+                    if pair.0 == template_name {
+                        template = Some(index);
+                    }
+                }
+                if template.is_none() {
+                    println!("   Invalid template");
+                    continue;
+                }
+                let template = template.unwrap();
+                templates[template].1.render(sacrifice)
+            };
+            //sacrifice.borrow().draw_tree(0);
+            let mut path = std::path::PathBuf::from("output");
+            path.push(path_propre);
+            println!("creating {:?}", path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let mut file = std::fs::File::create(path).unwrap();
+            file.write_all(text.as_bytes()).unwrap();
+        }
+        else {
+            println!("WARNING: Your filesystem tree looks kinda ill. Consider, perhaps, cleaning it up?");
+        }
+    }
 }
 
 
@@ -60,7 +115,7 @@ fn main() {
     //let mut templates : Vec <rasta::RastaTemplate> = Vec::new();
     let mut templates : Vec<(String, rasta::TreeNode)> = vec![];
     for path in std::fs::read_dir(templates_dir).unwrap() {
-        let mut file = match std::fs::File::open(path.as_ref().unwrap().path()) {
+        /*let mut file = match std::fs::File::open(path.as_ref().unwrap().path()) {
             Ok(f) => f,
             Err(_) => {continue;}
         };
@@ -68,8 +123,10 @@ fn main() {
         let tokens = rasta::lexer(&mut file);
         let mut tokens = tokens.iter().peekable();
         let r = rasta::TreeNode::congeal(&mut tokens);
-        println!("{}", r.render(rasta::Scope::top().wrap()));
+        //println!("{}", r.render(rasta::Scope::top().wrap()));*/
+        let r = rasta::TreeNode::parse(path.as_ref().unwrap().path());
         templates.push((path.unwrap().path().file_stem().unwrap().to_str().unwrap().to_string(), r));
     }
-    //parse_all_recursive(templates);
+    println!("Rendering");
+    parse_all_recursive(&templates, std::path::PathBuf::from("."));
 }

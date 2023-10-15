@@ -46,7 +46,6 @@
 */
 
 
-use std::str::Chars;
 use std::rc::Rc;
 
 
@@ -240,9 +239,6 @@ impl std::fmt::Display for Operation {
             Operation::Label (thing, None) => {
                 write!(f, "Label \x1b[32m{}\x1b[0m, no inline default", thing)
             }
-            _ => {
-                write!(f, "{:?}", self)
-            }
         }
     }
 }
@@ -256,7 +252,7 @@ pub struct TreeNode {
 
 
 pub struct Scope {
-    name : String,
+    pub name : String,
     parent : Option<Rc<RefCell<Scope>>>,
     children : Vec<Rc<RefCell<Scope>>>,
     content : String
@@ -273,21 +269,36 @@ impl Scope {
         }
     }
 
+    pub fn print_debug_info(&self) {
+        let mut kids : Vec<String> = vec![];
+        for child in &self.children {
+            kids.push(child.borrow().name.clone());
+        }
+        println!("Scope with name {} and children {:?}", self.name, kids);
+    }
+
+    pub fn draw_tree(&self, mut level : usize) {
+        println!("{}- {}", "  ".repeat(level), self.name);
+        level += 1;
+        println!("{}{}", "  ".repeat(level), self.content);
+        for child in &self.children {
+            child.borrow().draw_tree(level);
+        }
+    }
+
     pub fn wrap(self) -> Rc<RefCell<Scope>> {
         Rc::new(RefCell::new(self))
     }
 
     pub fn chitlin_w(parent : Rc<RefCell<Scope>>, name : String) -> Rc<RefCell<Scope>> { // make a wrapped scope the parent of a new scope
-        Scope {
+        let child = Scope {
             name : name,
-            parent : Some(parent),
+            parent : Some(parent.clone()),
             content : String::new(),
             children : vec![]
-        }.wrap()
-    }
-
-    pub fn chitlin(parent : Scope, name : String) -> Rc<RefCell<Scope>> {
-        Scope::chitlin_w(parent.wrap(), name)
+        }.wrap();
+        parent.borrow_mut().children.push(child.clone());
+        child
     }
 
     fn get_child(&self, name : &str) -> Option<Rc<RefCell<Scope>>> {
@@ -327,7 +338,7 @@ impl Scope {
                 }
             }
         }
-        println!("COULDN'T FIND LE SCOPE.");
+        println!("Could not find scope referred to by {:?}.", target);
         None
     }
 
@@ -335,6 +346,15 @@ impl Scope {
         let rid = name.split(".").collect::<Vec<&str>>();
         if self.get_child(rid[0]).is_some() {
             self._get(rid, 0)
+        }
+        else if self.name == rid[0] { // we looked into the face of the enemy...
+            // ...and saw only ourselves staring back at us.
+            if rid.len() == 1 {
+                Some(self.content.clone())
+            }
+            else {
+                self._get(rid, 1)
+            }
         }
         else {
             println!("WALKING ON THE SUN");
@@ -352,6 +372,30 @@ use core::iter::Peekable;
 use std::cell::RefCell;
 
 impl TreeNode {
+    pub fn parse(path : std::path::PathBuf) -> TreeNode { // this is purely a convenience function. It just calls Congeal.
+        let mut file = match std::fs::File::open(path) {
+            Ok(f) => f,
+            Err(_) => {panic!("PANIIIICCCC")}
+        };
+        let tokens = lexer(&mut file);
+        let mut tokens = tokens.iter().peekable();
+        return TreeNode::congeal(&mut tokens);
+    }
+
+    pub fn is_plaintext(&self) -> bool {
+        match self.operation {
+            Operation::Text (_) => true,
+            _ => false
+        }
+    }
+
+    pub fn plaintext(&self) -> String {
+        match &self.operation {
+            Operation::Text (text) => text.to_string(),
+            _ => panic!("PANICCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
+        }
+    }
+
     pub fn congeal(items : &mut Peekable<Iter<'_, LexerToken>>) -> TreeNode {
         let me = items.next().unwrap();
         match me {
@@ -428,36 +472,34 @@ impl TreeNode {
         let mut ret = String::new();
         for child in &self.children {
             match child.operation.clone() {
-                Operation::Assignment (name, _) => {
-                    let mut child_scope = Scope::chitlin_w(scope.clone(), name);
-                    child_scope.borrow_mut().content = child.render(child_scope.clone()).trim().to_string();
-                    scope.borrow_mut().children.push(child_scope);
+                Operation::Assignment (name, value) => {
+                    let child_scope = Scope::chitlin_w(scope.clone(), name);
+                    child_scope.borrow_mut().content = if value.trim() == "" { child.render(child_scope.clone()).to_string() } else { value };
                 },
                 Operation::Text (text) => {
-                    let mut pruned = text.trim();
+                    /*let mut pruned = text.trim();
                     if pruned == "" {
                         pruned = " ";
-                    }
-                    ret += pruned;
+                    }*/
+                    ret += &text;
                 },
                 Operation::Label (variable, default) => {
-                    ret += match scope.borrow().get(variable) {
+                    let dat : Option<String> = scope.borrow().get(variable);
+                    ret += match dat {
                         Some(data) => data,
                         None => {
                             match default {
                                 Some(data) => data,
                                 None => {
-                                    panic!("YOUR MOM");
+                                    child.render(scope.clone())
                                 }
                             }
                         }
                     }.trim()
-                },
-                _ => {
-                    ret += &child.render(scope.clone());
                 }
             }
         }
+        scope.borrow_mut().content = ret.clone();
         ret
     }
 }
